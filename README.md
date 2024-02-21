@@ -72,6 +72,9 @@ Put the font in the **Interface\addons\SharedMedia\Media\Fonts** folder.
 Register it by adding the `LSM:Register(MediaType_FONT, "nazvanie123", [[Interface\AddOns\SharedMedia\Media\Fonts\nazvanie123.ttf]])` line to **SharedMedia.lua**
 
 
+## Updates of 12.23 - ...
+
+
 **Updated 8.12.23**:
 Added: Embiggen crits max pow sizing, determines how much crit numbers will maximally grow.
 
