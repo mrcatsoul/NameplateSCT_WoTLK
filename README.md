@@ -1,17 +1,6 @@
 # NameplateSCT - WoTLK (3.3.5)
 This adds the same style of SCT to your personal frame or anchored to your screen (depending on what is enabled).
 
-## Install
-
-1. [Download the package.](https://github.com/mrcatsoul/NameplateSCT_WoTLK/archive/refs/heads/main.zip)
-2. Open the archive, then open folder `NameplateSCT_WoTLK-main`.
-3. Extract the single folder `NameplateSCT` to `Interface\AddOns`.
-4. Enjoy!
-
-Original addon can be found here: https://www.curseforge.com/wow/addons/nameplate-scrolling-combat-text
-Credits to original authors: **mpstark, Justwait**.
-
-
 ## About this fork
 
 This is a fork that I published on the private server forum (https://forum.wowcircle.com/showthread.php?t=1248039)
@@ -96,3 +85,13 @@ Added: Show absorb amount, shows absorbed damage in parentheses on/off.
 Added: Super-duper crappy option for overkill display.
 
 *The added functionality has been tested only superficially, there may be errors, to find them, those who will use this version are recommended to enable lua errors display, and generally, it's better to never disable them, because detected bad code needs fixing.*
+
+## Install
+
+1. [Download the package.](https://github.com/mrcatsoul/NameplateSCT_WoTLK/archive/refs/heads/main.zip)
+2. Open the archive, then open folder `NameplateSCT_WoTLK-main`.
+3. Extract the single folder `NameplateSCT` to `Interface\AddOns`.
+4. Enjoy!
+
+Original addon can be found here: https://www.curseforge.com/wow/addons/nameplate-scrolling-combat-text
+Credits to original authors: **mpstark, Justwait**.
