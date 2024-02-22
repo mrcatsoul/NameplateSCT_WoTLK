@@ -4,6 +4,7 @@ This adds the same style of SCT to your personal frame or anchored to your scree
 ## About this fork
 
 This is a fork of https://github.com/bkader/NameplateSCT_WoTLK that I published on the private server forum (https://forum.wowcircle.com/showthread.php?t=1248039)
+
 It includes the following fixes and additional settings:
 
 **Updates of 11.23**:
