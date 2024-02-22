@@ -19,7 +19,7 @@ It includes the following fixes and additional settings:
 
 **Updates of 11.23**:
 
-Added: Adaptation for **Awesome WotLK** (https://github.com/FrostAtom/awesome_wotlk), allowing the addon to now work correctly with all nameplates, meaning there's no need to hover or target each of them to retrieve guids. Without the patch, it will only work on target and hover, similar to **PlateBuffs**, from the nameplates from which the guids were obtained, and even then, not always.
+Added: Adaptation for **Awesome WotLK** (https://github.com/FrostAtom/awesome_wotlk), allowing the addon to now work correctly with all nameplates, meaning there's no need to mouseover or target each of them to retrieve guids. Without the patch, it will only work on target and mouseover, similar to **PlateBuffs**, from the nameplates from which the guids were obtained, and even then, not always.
 
 Fixed: Rare bug where the nameplate from which the numbers were coming didn't belong to the true owner.
 
