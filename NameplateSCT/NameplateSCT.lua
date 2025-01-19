@@ -1,3 +1,4 @@
+
 ---@diagnostic disable: deprecated, undefined-global, duplicate-set-field, undefined-field
 ---------------
 -- LIBRARIES --
@@ -88,12 +89,153 @@ local function contains(table, element)
   return false
 end
 
+-- test 11.4.24
+local function utf8sub(string, i, dots)
+  if not string then return end
+  local bytes = string:len()
+  if (bytes <= i) then
+    return string
+  else
+    local len, pos = 0, 1
+    while (pos <= bytes) do
+      len = len + 1
+      local c = string:byte(pos)
+      if (c > 0 and c <= 127) then
+        pos = pos + 1
+      elseif (c >= 192 and c <= 223) then
+        pos = pos + 2
+      elseif (c >= 224 and c <= 239) then
+        pos = pos + 3
+      elseif (c >= 240 and c <= 247) then
+        pos = pos + 4
+      end
+      if (len == i) then break end
+    end
+
+    if (len == i and pos <= bytes) then
+      return string:sub(1, pos - 1) .. (dots and '..' or '')
+    else
+      return string
+    end
+  end
+end
+
+-- test 11.4.24
+local function Abbrev(str)
+  local letters, lastWord = "", string.match(str, ".+%s(.+)$")
+  if lastWord then
+    for word in gmatch(str, ".-%s") do
+      local firstLetter = string.utf8sub(gsub(word, "^[%s%p]*", ""), 1, 1)
+      if firstLetter ~= string.utf8lower(firstLetter) then
+        letters = format("%s%s. ", letters, firstLetter)
+      end
+    end
+    str = format("%s%s", letters, lastWord)
+  end
+  return str
+end
+
+-- test 11.4.24
+local function shortName(name,isPersonal)
+  local newName = name
+  if name then
+    newName = newName:gsub("-.*$", "")
+  end
+  local maxLen = (isPersonal and NameplateSCT.db.global.CasterNamesMaxLengthPersonal) or NameplateSCT.db.global.CasterNamesMaxLength or 0
+  if newName and #newName:gsub('[\128-\191]', '') > maxLen then
+    newName = Abbrev(name)
+    if #newName:gsub('[\128-\191]', '') > maxLen then
+      newName = utf8sub(newName, maxLen, true)
+    end
+    newName = newName:gsub("%s+", "")
+  end
+  return newName or "UNKNOWN"
+end
+
+local classColors = {
+  ["DEATHKNIGHT"] = "C41F3B",
+  ["DRUID"] = "FF7D0A",
+  ["HUNTER"] = "A9D271",
+  ["MAGE"] = "40C7EB",
+  ["PALADIN"] = "F58CBA",
+  ["PRIEST"] = "FFFFFF",
+  ["ROGUE"] = "FFF569",
+  ["SHAMAN"] = "0070DE",
+  ["WARLOCK"] = "8787ED",
+  ["WARRIOR"] = "C79C6E",
+}
+
+local nameClassColor = {}
+
+local function colorName(name,unitid,guid,unknownColor,hyperLink,chathyperLink,isPersonal)
+  --local classColor = classColors[select(2,GetPlayerInfoByGUID(guid))]
+  if not NameplateSCT.db.global.enableClassColorCasterNames then
+    if unknownColor then
+      return "|cff"..unknownColor..(shortName(name,isPersonal) or "UNKNOWN").."|r"
+    end
+    return shortName(name,isPersonal)
+  end
+  
+  local _name = name
+  
+  if not _name then
+    if unitid then
+      _name = UnitName(unitid)
+    elseif guid and (tonumber(guid:sub(5, 5), 16) % 8 == 0) then
+      _name = select(6,GetPlayerInfoByGUID(guid))
+    else
+      _name = "UNKNOWN"
+    end
+  end
+  
+  --if hyperLink==nil then 
+  --  hyperLink=1 
+  --end
+  
+  if hyperLink then
+    if chathyperLink then
+      _name = "|Hplayer:".._name.."|h".._name.."|h"
+    elseif guid then
+      _name = "|Hunit:" .. guid .. ":" .. _name .. "|h" .. _name .. "|h"
+    end
+  end
+  
+  local classColor
+  
+  if (not _name or _name == "" or _name == STRING_SCHOOL_UNKNOWN) then 
+    return ""
+  end
+  
+  if nameClassColor[name] then
+    classColor = nameClassColor[name]
+  elseif unitid then
+    classColor = classColors[select(2,UnitClass(unitid))] or unknownColor --or "ffffff"
+    nameClassColor[name]=classColor
+  elseif guid then
+    classColor = classColors[select(2,GetPlayerInfoByGUID(guid))] or unknownColor --or "ffffff"
+    nameClassColor[name]=classColor
+  elseif name then
+    classColor = classColors[select(2,UnitClass(name))] or unknownColor --or "ffffff"
+    nameClassColor[name]=classColor
+  else
+    classColor = "ffffff"
+  end
+  
+  if not classColor then
+    classColor="ffffff"
+  end
+  
+  --print(classColor,_name)
+  return "|ccc"..classColor..shortName(_name,isPersonal).."|r"
+end
+
 local animationValues = {
   ["verticalUp"] = L["Vertical Up"],
   ["verticalDown"] = L["Vertical Down"],
   ["fountain"] = L["Fountain"],
   ["rainfall"] = L["Rainfall"],
   ["rainfallRev"] = "Rainfall reverse", -- 23.11.23 added new anim type
+  ["arcDown"] = "arcDown",--26.7.24
   ["disabled"] = L["Disabled"]
 }
 
@@ -284,6 +426,8 @@ local defaults = {
     smallHitsDamageHidePersonal = false,
     smallHitsHealHidePersonal = false,
     xOffsetPersonal = 0,
+    xOffsetHealingPersonal = 0,
+    yOffsetHealingPersonal = 0,
     yOffsetPersonal = -175,
     animationspeedPersonal = 1.25, -- 23.11.23
     powSizingMax = 1.5,
@@ -293,12 +437,22 @@ local defaults = {
     showCasterNamesDamagePersonal = false,
     showCasterNamesHeals = false,
     showCasterNamesHealsPersonal = false,
+    CasterNamesMaxLengthPersonal = 12,
+    CasterNamesMaxLength = 12,
     namesWhitelist = {},
     enableWhitelist = false,
     namesBlacklist = {},
     enableBlacklist = false,
     showAbsorbAmount = false,
     showAbsorbAmountPersonal = false,
+    
+    enableShowOnSpecificNameplatesByName = false,
+    showOnSpecificNameplatesNameList = {},
+    --hideMissParryImmuneEtc = false,
+    --hideMissParryImmuneEtcPersonal = false,
+    hideMyHits = false,
+    enableClassColorCasterNames = false,
+    enableSimpleStylePersonalSct = false,
     --},
   }
 }
@@ -316,7 +470,7 @@ local DAMAGE_TYPE_COLORS = {
   [SCHOOL_MASK_ARCANE] = "FF80FF",
   [AutoAttack] = "FFFFFF",
   [AutoShot] = "FFFFFF",
-  ["pet"] = "CC8400",
+  ["pet"] = "FF9900",
   ["heals"] = "4dff4d",
 }
 
@@ -383,6 +537,411 @@ local function getFontPath(fontName)
   local fontPath = SharedMedia:Fetch("font", fontName) or "Fonts\\FRIZQT__.TTF"
   return fontPath
 end
+
+-- test (simple style personal sct) 26.7.24
+do
+  local myRealName=UnitName("player")
+  local f = CreateFrame("frame")
+  f:RegisterEvent("PLAYER_ENTERING_WORLD")
+  f:SetScript("onevent",function(self) myRealName=UnitName("player") self:UnregisterEvent("PLAYER_ENTERING_WORLD") end)
+  f:SetPoint("TOPLEFT")
+  f:SetPoint("BOTTOMRIGHT")
+  f:SetFrameLevel(0)
+  f:SetFrameStrata("BACKGROUND")
+  f.tex = f:CreateTexture("alertFrame_screenEdgeHighlight_dmg", "BACKGROUND")
+  f.tex:SetAllPoints(f)
+  f.tex:Hide()
+
+  local texEdge = [[Interface\addons\CustomFrames\white.tga]]
+  local texFull = [[Interface\addons\CustomFrames\fullwhite+edge2.tga]]
+  -- local defaultPosY = -100
+  -- local defaultPosX = 228
+  local defaultPosY = -130
+  local defaultPosX = 700
+  local maxTextFrames = 20
+  local defaultFontStartSize = 1
+  --local defaultTextColor = {0.8,1,0.8}
+  local defaultTextColor = {0.5,0.3,1}
+  local defaultFlashColor = {0.5,0.3,1}
+  local defaultSoundPath = [[Sound\Interface\RaidBossWarning.wav]]
+  local defaultText = "test! 12345! kdsjksdjfksdjf, ЭТА ТЭСТ"
+  local defaultTextDuration = 2
+  local defaultFlashDuration = 1
+  local defaultFont = [[Interface\addons\CustomFrames\PTSansNarrow.ttf]]
+  local defaultFontMaxSize = 35
+  
+  local busyFrames = {}
+   
+  -- Функция для изменения размера фрейма
+  local function animateFrameSize(startTextSize, maxTextSize, scalingDuration, textRegion)
+      busyFrames[textRegion]={maxTextSize=maxTextSize}
+      local startTime = GetTime()
+      local scalingFactor = maxTextSize/startTextSize
+      local frame=textRegion:GetParent()
+
+      local function onUpdate()
+          local elapsed = GetTime() - startTime
+          local progress = elapsed / scalingDuration
+          
+          if frame:GetScript("OnUpdate") then
+            if progress >= 1 then
+                --textRegion:SetFont(defaultFont, startTextSize, 'OUTLINE')
+                frame:SetScript("OnUpdate", nil)
+                --busyFrames[textRegion]=nil
+            else
+                local curSize = select(2,textRegion:GetFont())
+                local newSize = curSize + (maxTextSize - curSize) * progress
+                --textRegion:SetFont(defaultFont, newSize, 'OUTLINE')
+                textRegion:SetFont(getFontPath(NameplateSCT.db.global.fontPersonal) or defaultFont, newSize, 'OUTLINE')
+                --print(select(2,textRegion:GetFont()))
+            end
+          end
+      end
+      
+      if frame:GetScript("OnUpdate")==nil then
+        frame:SetScript("OnUpdate", onUpdate)
+      end
+  end
+
+  for i = 1, maxTextFrames do
+    local f = CreateFrame("frame","alertFrame_dmg"..i)
+    f.t=f:CreateFontString("alertFrame_text_dmg"..i, "overlay")
+    --f.t:SetShadowOffset(1, -1)
+    f.t:SetShadowOffset(0, 0)
+    f.t:SetPoint("BOTTOM", f, "CENTER", 0, 0)
+    f.t:SetJustifyH("BOTTOM")
+    f.t:SetJustifyV("BOTTOM")
+    f:SetFrameStrata("high")
+  end
+  
+  local function countNewlines(text)
+    if not text then return 0 end
+    return select(2, text:gsub("\n", "")) or 0
+  end
+  
+  --func_Alert("",{0,0,0},nil,1,{0.6,0,0},0.5,true,true)
+  function func_dmg(text,textcolor,startTextSize,textDuration,flashColor,flashDuration,edgeFlashOnly,enableFlash,enableSound,soundPath,soundPathTwo,maxTextSize,matchText)
+      if enableFlash==nil then enableFlash = true end
+      if edgeFlashOnly==nil then edgeFlashOnly = true end
+      if text==nil then text = defaultText end
+      if soundPath==nil then soundPath = defaultSoundPath end
+      if flashColor==nil then flashColor = defaultFlashColor end
+      if textcolor==nil then textcolor = defaultTextColor end
+      if startTextSize==nil then startTextSize = defaultFontStartSize end
+      if textDuration==nil then textDuration = defaultTextDuration end
+      if flashDuration==nil then flashDuration = defaultFlashDuration end
+      if maxTextSize==nil then maxTextSize = defaultFontMaxSize end
+      
+      local tex--,screenflash
+      if edgeFlashOnly then 
+        tex=texEdge 
+        --screenflash=true 
+      elseif enableFlash then
+        tex=texFull 
+      end
+      
+      if tex then
+        alertFrame_screenEdgeHighlight_dmg:SetTexture(tex)
+      end
+      
+      local textRegion,anchor,prevTextRegion,nextTextRegion,offsetY,offsetX--,prevTextRegionNumLines,prevTextFontSize
+      
+      for i = 1, maxTextFrames do
+        textRegion = _G["alertFrame_text_dmg" .. i]
+        prevTextRegion = _G["alertFrame_text_dmg"..(i-1)]
+        nextTextRegion = _G["alertFrame_text_dmg"..(i+1)]
+        nextNextTextRegion = _G["alertFrame_text_dmg"..(i+2)]
+        --print(textRegion:GetName())
+
+        if (not UIFrameIsFlashing(textRegion) or (matchText and textRegion and textRegion:GetText()~=nil and textRegion:GetText():find(matchText))) then  
+          --busyFrames[textRegion]=true
+          --print(textRegion:GetName())
+          
+          if (prevTextRegion) then 
+            prevTextRegionNumLines = countNewlines(prevTextRegion:GetText())+1
+            --print(prevTextRegion:GetText(),prevTextRegionNumLines)
+            prevTextFontSize = math.min(maxTextSize,(select(2,prevTextRegion:GetFont())))
+            --offsetY = -((prevTextRegion:GetStringHeight())+maxTextSize) ---------------------------&&&&&&&&&&&&?????????????????
+            --offsetY = -(busyFrames[prevTextRegion].maxTextSize+maxTextSize)
+            offsetY = -(busyFrames[prevTextRegion].maxTextSize*(prevTextRegionNumLines+1))
+            --print(prevTextRegionNumLines)
+            --print(busyFrames[prevTextRegion].maxTextSize,maxTextSize)
+            anchor = prevTextRegion
+            offsetX = 0
+          else
+            prevTextRegion = textRegion 
+            offsetY = defaultPosY +(NameplateSCT.db.global.yOffsetPersonal or 0)
+            anchor = UIParent
+            offsetX = defaultPosX +(NameplateSCT.db.global.xOffsetPersonal or 0)
+          end
+          
+          --print(offsetY)
+          
+          if (nextTextRegion and nextTextRegion:IsVisible()) then
+            UIFrameFlashStop(nextTextRegion)
+            nextTextRegion:Hide()
+            --print('nextTextRegion:Hide(func_Alert)')
+            --UIFrameFadeOut(nextTextRegion, 0.15, nextTextRegion:GetAlpha(), 0)
+            --print('UIFrameFadeOut(nextTextRegion')
+          end
+          
+          if (nextNextTextRegion and nextNextTextRegion:IsVisible()) then
+            UIFrameFlashStop(nextNextTextRegion)
+            nextNextTextRegion:Hide()
+            --print('nextNextTextRegion:Hide(func_Alert)')
+          end
+          
+          -- if (nextNextTextRegion and nextNextTextRegion:IsVisible()) then
+            -- UIFrameFlashStop(nextNextTextRegion)
+            -- UIFrameFadeOut(nextNextTextRegion, 0.15, nextNextTextRegion:GetAlpha(), 0)
+            -- print('UIFrameFadeOut(nextNextTextRegion')
+          -- end
+          
+          textRegion:SetPoint("left", anchor, "left", offsetX, offsetY+11)
+          break
+        elseif (i == maxTextFrames) then
+          textRegion = _G["alertFrame_text_dmg"..(1)]
+          textRegion:SetPoint("left", UIParent, "left", defaultPosX, defaultPosY)
+        end
+      end
+      
+      if text then
+        --textRegion:SetFont(defaultFont, startTextSize, 'OUTLINE')
+        textRegion:SetFont(getFontPath(NameplateSCT.db.global.fontPersonal) or defaultFont, startTextSize, 'OUTLINE')
+        textRegion:SetTextColor(unpack(textcolor))
+        if myRealName and MyNewName then 
+          text=text:gsub(myRealName, MyNewName):gsub(myRealName:lower(), MyNewName)
+        end
+        textRegion:SetText(text)
+        --print(tonumber(textRegion:GetText()))
+      end
+      
+      animateFrameSize(startTextSize, maxTextSize, 0.3, textRegion)
+      --func_frameShake(textRegion, 3, 1, 0.5, stopIncremensionOnXSecond, intensityDecreaseAfterXSecond, 20)
+   
+      if tex and (--[[screenflash]] edgeFlashOnly or enableFlash) then
+        UIFrameFlashStop(alertFrame_screenEdgeHighlight_dmg)
+        if cnmFrame_screenEdgeHighlight and text~="" then 
+          --cnmFrame_screenEdgeHighlight:Hide()
+          UIFrameFadeOut(cnmFrame_screenEdgeHighlight, 0.8, 0.5, 0) 
+        end
+        alertFrame_screenEdgeHighlight_dmg:SetVertexColor(unpack(flashColor))
+        local fadeInTime=flashDuration/5
+        local fadeOutTime=flashDuration/2
+        --UIFrameFlash(alertFrame_screenEdgeHighlight_dmg, 0.2, 0.5, flashDuration, false, flashDuration-0.2-0.5, 0)
+        UIFrameFlash(alertFrame_screenEdgeHighlight_dmg, fadeInTime, fadeOutTime, flashDuration, false, flashDuration-fadeInTime-fadeOutTime, 0)
+      end
+      
+      UIFrameFlashStop(textRegion)
+      UIFrameFlash(textRegion, 0.2, 0.8, textDuration, false, textDuration-0.2-0.8, 0)
+      
+      if enableSound then PlaySoundFile(soundPath) end
+      if soundPathTwo then PlaySoundFile(soundPathTwo) end
+  end
+end
+
+
+do
+  local myRealName=UnitName("player")
+  local f = CreateFrame("frame")
+  f:RegisterEvent("PLAYER_ENTERING_WORLD")
+  f:SetScript("onevent",function(self) myRealName=UnitName("player") self:UnregisterEvent("PLAYER_ENTERING_WORLD") end)
+  f:SetPoint("TOPLEFT")
+  f:SetPoint("BOTTOMRIGHT")
+  f:SetFrameLevel(0)
+  f:SetFrameStrata("BACKGROUND")
+  f.tex = f:CreateTexture("alertFrame_screenEdgeHighlight_heal", "BACKGROUND")
+  f.tex:SetAllPoints(f)
+  f.tex:Hide()
+
+  local texEdge = [[Interface\addons\CustomFrames\white.tga]]
+  local texFull = [[Interface\addons\CustomFrames\fullwhite+edge2.tga]]
+  -- local defaultPosY = -100
+  -- local defaultPosX = 450
+  local defaultPosY = -130
+  local defaultPosX = 850
+  local maxTextFrames = 20
+  local defaultFontStartSize = 1
+  --local defaultTextColor = {0.8,1,0.8}
+  local defaultTextColor = {0.5,0.3,1}
+  local defaultFlashColor = {0.5,0.3,1}
+  local defaultSoundPath = [[Sound\Interface\RaidBossWarning.wav]]
+  local defaultText = "test! 12345! kdsjksdjfksdjf, ЭТА ТЭСТ"
+  local defaultTextDuration = 2
+  local defaultFlashDuration = 1
+  local defaultFont = [[Interface\addons\CustomFrames\PTSansNarrow.ttf]]
+  local defaultFontMaxSize = 35
+  
+  local busyFrames = {}
+   
+  -- Функция для изменения размера фрейма
+  local function animateFrameSize(startTextSize, maxTextSize, scalingDuration, textRegion)
+      busyFrames[textRegion]={maxTextSize=maxTextSize}
+      local startTime = GetTime()
+      local scalingFactor = maxTextSize/startTextSize
+      local frame=textRegion:GetParent()
+
+      local function onUpdate()
+          local elapsed = GetTime() - startTime
+          local progress = elapsed / scalingDuration
+          
+          if frame:GetScript("OnUpdate") then
+            if progress >= 1 then
+                --textRegion:SetFont(defaultFont, startTextSize, 'OUTLINE')
+                frame:SetScript("OnUpdate", nil)
+                --busyFrames[textRegion]=nil
+            else
+                local curSize = select(2,textRegion:GetFont())
+                local newSize = curSize + (maxTextSize - curSize) * progress
+                --textRegion:SetFont(defaultFont, newSize, 'OUTLINE')
+                textRegion:SetFont(getFontPath(NameplateSCT.db.global.fontPersonal) or defaultFont, newSize, 'OUTLINE')
+                --print(select(2,textRegion:GetFont()))
+            end
+          end
+      end
+      
+      if frame:GetScript("OnUpdate")==nil then
+        frame:SetScript("OnUpdate", onUpdate)
+      end
+  end
+
+  for i = 1, maxTextFrames do
+    local f = CreateFrame("frame","alertFrame_heal"..i)
+    f.t=f:CreateFontString("alertFrame_text_heal"..i, "overlay")
+    --f.t:SetShadowOffset(1, -1)
+    f.t:SetShadowOffset(0, 0)
+    f.t:SetPoint("BOTTOM", f, "CENTER", 0, 0)
+    f.t:SetJustifyH("BOTTOM")
+    f.t:SetJustifyV("BOTTOM")
+    f:SetFrameStrata("high")
+  end
+  
+  local function countNewlines(text)
+    if not text then return 0 end
+    return select(2, text:gsub("\n", "")) or 0
+  end
+  
+  --func_Alert("",{0,0,0},nil,1,{0.6,0,0},0.5,true,true)
+  function func_heal(text,textcolor,startTextSize,textDuration,flashColor,flashDuration,edgeFlashOnly,enableFlash,enableSound,soundPath,soundPathTwo,maxTextSize,matchText)
+      if enableFlash==nil then enableFlash = true end
+      if edgeFlashOnly==nil then edgeFlashOnly = true end
+      if text==nil then text = defaultText end
+      if soundPath==nil then soundPath = defaultSoundPath end
+      if flashColor==nil then flashColor = defaultFlashColor end
+      if textcolor==nil then textcolor = defaultTextColor end
+      if startTextSize==nil then startTextSize = defaultFontStartSize end
+      if textDuration==nil then textDuration = defaultTextDuration end
+      if flashDuration==nil then flashDuration = defaultFlashDuration end
+      if maxTextSize==nil then maxTextSize = defaultFontMaxSize end
+      
+      local tex--,screenflash
+      if edgeFlashOnly then 
+        tex=texEdge 
+        --screenflash=true 
+      elseif enableFlash then
+        tex=texFull 
+      end
+      
+      if tex then
+        alertFrame_screenEdgeHighlight_heal:SetTexture(tex)
+      end
+      
+      local textRegion,anchor,prevTextRegion,nextTextRegion,offsetY,offsetX--,prevTextRegionNumLines,prevTextFontSize
+      
+      for i = 1, maxTextFrames do
+        textRegion = _G["alertFrame_text_heal" .. i]
+        prevTextRegion = _G["alertFrame_text_heal"..(i-1)]
+        nextTextRegion = _G["alertFrame_text_heal"..(i+1)]
+        nextNextTextRegion = _G["alertFrame_text_heal"..(i+2)]
+        --print(textRegion:GetName())
+
+        if (not UIFrameIsFlashing(textRegion) or (matchText and textRegion and textRegion:GetText()~=nil and textRegion:GetText():find(matchText))) then  
+          --busyFrames[textRegion]=true
+          --print(textRegion:GetName())
+          
+          if (prevTextRegion) then 
+            prevTextRegionNumLines = countNewlines(prevTextRegion:GetText())+1
+            --print(prevTextRegion:GetText(),prevTextRegionNumLines)
+            prevTextFontSize = math.min(maxTextSize,(select(2,prevTextRegion:GetFont())))
+            --offsetY = -((prevTextRegion:GetStringHeight())+maxTextSize) ---------------------------&&&&&&&&&&&&?????????????????
+            --offsetY = -(busyFrames[prevTextRegion].maxTextSize+maxTextSize)
+            offsetY = -(busyFrames[prevTextRegion].maxTextSize*(prevTextRegionNumLines+1))
+            --print(prevTextRegionNumLines)
+            --print(busyFrames[prevTextRegion].maxTextSize,maxTextSize)
+            anchor = prevTextRegion
+            offsetX = 0
+          else
+            prevTextRegion = textRegion 
+            offsetY = defaultPosY +(NameplateSCT.db.global.yOffsetHealingPersonal or 0)
+            anchor = UIParent
+            offsetX = defaultPosX +(NameplateSCT.db.global.xOffsetHealingPersonal or 0)
+          end
+          
+          --print(offsetY)
+          
+          if (nextTextRegion and nextTextRegion:IsVisible()) then
+            UIFrameFlashStop(nextTextRegion)
+            nextTextRegion:Hide()
+            --print('nextTextRegion:Hide(func_Alert)')
+            --UIFrameFadeOut(nextTextRegion, 0.15, nextTextRegion:GetAlpha(), 0)
+            --print('UIFrameFadeOut(nextTextRegion')
+          end
+          
+          if (nextNextTextRegion and nextNextTextRegion:IsVisible()) then
+            UIFrameFlashStop(nextNextTextRegion)
+            nextNextTextRegion:Hide()
+            --print('nextNextTextRegion:Hide(func_Alert)')
+          end
+          
+          -- if (nextNextTextRegion and nextNextTextRegion:IsVisible()) then
+            -- UIFrameFlashStop(nextNextTextRegion)
+            -- UIFrameFadeOut(nextNextTextRegion, 0.15, nextNextTextRegion:GetAlpha(), 0)
+            -- print('UIFrameFadeOut(nextNextTextRegion')
+          -- end
+          
+          textRegion:SetPoint("left", anchor, "left", offsetX, offsetY+11)
+          break
+        elseif (i == maxTextFrames) then
+          textRegion = _G["alertFrame_text_heal"..(1)]
+          textRegion:SetPoint("left", UIParent, "left", defaultPosX, defaultPosY)
+        end
+      end
+      
+      if text then
+        --textRegion:SetFont(defaultFont, startTextSize, 'OUTLINE')
+        textRegion:SetFont(getFontPath(NameplateSCT.db.global.fontPersonal) or defaultFont, startTextSize, 'OUTLINE')
+        textRegion:SetTextColor(unpack(textcolor))
+        if myRealName and MyNewName then 
+          text=text:gsub(myRealName, MyNewName):gsub(myRealName:lower(), MyNewName)
+        end
+        textRegion:SetText(text)
+        --print(tonumber(textRegion:GetText()))
+      end
+      
+      animateFrameSize(startTextSize, maxTextSize, 0.3, textRegion)
+      --func_frameShake(textRegion, 3, 1, 0.5, stopIncremensionOnXSecond, intensityDecreaseAfterXSecond, 20)
+   
+      if tex and (--[[screenflash]] edgeFlashOnly or enableFlash) then
+        UIFrameFlashStop(alertFrame_screenEdgeHighlight_heal)
+        if cnmFrame_screenEdgeHighlight and text~="" then 
+          --cnmFrame_screenEdgeHighlight:Hide()
+          UIFrameFadeOut(cnmFrame_screenEdgeHighlight, 0.8, 0.5, 0) 
+        end
+        alertFrame_screenEdgeHighlight_heal:SetVertexColor(unpack(flashColor))
+        local fadeInTime=flashDuration/5
+        local fadeOutTime=flashDuration/2
+        --UIFrameFlash(alertFrame_screenEdgeHighlight_heal, 0.2, 0.5, flashDuration, false, flashDuration-0.2-0.5, 0)
+        UIFrameFlash(alertFrame_screenEdgeHighlight_heal, fadeInTime, fadeOutTime, flashDuration, false, flashDuration-fadeInTime-fadeOutTime, 0)
+      end
+      
+      UIFrameFlashStop(textRegion)
+      UIFrameFlash(textRegion, 0.2, 0.8, textDuration, false, textDuration-0.2-0.8, 0)
+      
+      if enableSound then PlaySoundFile(soundPath) end
+      if soundPathTwo then PlaySoundFile(soundPathTwo) end
+  end
+end
+
 
 local fontStringCache = {}
 local frameCounter = 0
@@ -573,7 +1132,7 @@ local function verticalPath(elapsed, duration, distance)
   return 0, LibEasing.InQuad(elapsed, 0, distance, duration)
 end
 
-local function arcPath(elapsed, duration, xDist, yStart, yTop, yBottom)
+local function arcPathFountain(elapsed, duration, xDist, yStart, yTop, yBottom)
   local x, y
   local progress = elapsed / duration
 
@@ -583,6 +1142,47 @@ local function arcPath(elapsed, duration, xDist, yStart, yTop, yBottom)
   local b = -3 * yStart + 4 * yTop - yBottom
 
   y = -a * math_pow(progress, 2) + b * progress + yStart
+
+  return x, y
+end
+
+-- local function arcPath(elapsed, duration, xDist, yStart, yTop, yBottom)
+  -- local x, y
+  -- local progress = elapsed / duration
+
+  -- -- x координата изменяется линейно с течением времени
+  -- x = progress * xDist
+
+  -- -- y координата изменяется линейно от yStart к yBottom
+  -- y = yStart + (yBottom - yStart) * progress
+
+  -- return x, y
+-- end
+
+-- local function arcPath(elapsed, duration, xDist, yStart, yTop, yBottom)
+  -- local x, y
+  -- local progress = elapsed / duration
+
+  -- -- Используем синусоидальную функцию для плавного начала движения по оси X
+  -- x = xDist * (1 - math.cos(math.pi * progress)) / 2
+
+  -- -- Линейное изменение по оси Y от yStart к yBottom
+  -- y = yStart + (yBottom - yStart) * progress
+
+  -- return x, y
+-- end
+
+--++
+local function arcPath(elapsed, duration, xDist, yStart, yTop, yBottom)
+  local x, y
+  local progress = elapsed / duration
+
+  -- Линейное движение по оси X
+  x = progress * xDist
+
+  -- Параболическое движение по оси Y, создающее эффект дуги
+  local a = yStart - yBottom
+  y = yStart - (a * progress * progress)
 
   return x, y
 end
@@ -684,6 +1284,9 @@ local function AnimationOnUpdate()
         elseif fontString.animation == "verticalDown" then
           xOffset, yOffset = verticalPath(elapsed, fontString.animatingDuration, -fontString.distance)
         elseif fontString.animation == "fountain" then
+          xOffset, yOffset = arcPathFountain(elapsed, fontString.animatingDuration, fontString.arcXDist, 0, fontString.arcTop,
+            fontString.arcBottom)
+        elseif fontString.animation == "arcDown" then
           xOffset, yOffset = arcPath(elapsed, fontString.animatingDuration, fontString.arcXDist, 0, fontString.arcTop,
             fontString.arcBottom)
         elseif fontString.animation == "rainfall" then
@@ -775,7 +1378,7 @@ function NameplateSCT:Animate(fontString, anchorFrame, duration, animation)
     fontString.distance = math_random(ANIMATION_VERTICAL_DISTANCE_MIN, ANIMATION_VERTICAL_DISTANCE_MAX) -- 27.11.23
   elseif animation == "verticalDown" then
     fontString.distance = math_random(ANIMATION_VERTICAL_DISTANCE_MIN, ANIMATION_VERTICAL_DISTANCE_MAX) -- 27.11.23
-  elseif animation == "fountain" then
+  elseif animation == "fountain" or animation == "arcDown" then
     fontString.arcTop = math_random(ANIMATION_ARC_Y_TOP_MIN, ANIMATION_ARC_Y_TOP_MAX)
     fontString.arcBottom = -math_random(ANIMATION_ARC_Y_BOTTOM_MIN, ANIMATION_ARC_Y_BOTTOM_MAX)
     fontString.arcXDist = arcDirection * math_random(ANIMATION_ARC_X_MIN, ANIMATION_ARC_X_MAX)
@@ -842,7 +1445,7 @@ CreateFrame("GameTooltip", "NSCT_GET_PET_OWNER_FRAME", nil, "GameTooltipTemplate
 NSCT_GET_PET_OWNER_FRAME:SetOwner(UIParent, "ANCHOR_NONE") 
 
 local function getPetOwner(petName,petGuid)
-  print("getPetOwner",petName,petGuid)
+  --print("getPetOwner",petName,petGuid)
   local ownerName,ownerGuid,_petGuid,_petName,isPet,firstText, secondText
   if petGuid and summonedUnitOwners[petGuid] then
     ownerGuid=summonedUnitOwners[petGuid].guid
@@ -856,8 +1459,10 @@ local function getPetOwner(petName,petGuid)
     NSCT_GET_PET_OWNER_FRAME:ClearLines()
     --NSCT_GET_PET_OWNER_FRAME:SetUnit(petName)
     NSCT_GET_PET_OWNER_FRAME:SetHyperlink(format("unit:%s", petGuid))--test
+    
     local text = _G["NSCT_GET_PET_OWNER_FRAMETextLeft2"] and _G["NSCT_GET_PET_OWNER_FRAMETextLeft2"]:GetText()
       if text then
+        --print(text)
         firstText, secondText = string.split("'", text)
         if firstText and secondText and (secondText:find('s Minion') or secondText:find('s Construct') or secondText:find('s Totem') or secondText:find('s Pet') or secondText:find('s Guardian') or secondText:find('s Opponent') or secondText:find('s Runeblade') or secondText:find('s Vehicle')) then
           isPet=true
@@ -920,15 +1525,25 @@ local function getPetOwner(petName,petGuid)
       end
   end
   
+  -- if ownerName then
+    -- print('pet: '..petName..' owner: '..(ownerName or 'hz')..'')
+    -- elseif firstText then
+    -- print('pet: '..petName..' owner: '..firstText..' (ne tochno)')
+  -- end
+  
   if not ownerName and petName and isPet and firstText then --test
     --print('NSCT: unknown owner of '..petName..', probably '..firstText) 
     return firstText
   end
-  --print('pet: '..petName..' owner: '..(ownerName or 'hz')..'')
+  
+
   return ownerName,ownerGuid
 end
 
-
+local COMBATLOG_OBJECT_TYPE_PLAYER=COMBATLOG_OBJECT_TYPE_PLAYER
+local function IsPlayer(flags,guid)
+	return (flags and band(flags, COMBATLOG_OBJECT_TYPE_PLAYER)==COMBATLOG_OBJECT_TYPE_PLAYER) or (guid and (tonumber(guid:sub(5, 5), 16) % 8) == 0) 
+end
 
 function NameplateSCT:COMBAT_LOG_EVENT_UNFILTERED(_, _, clueevent, srcGUID, srcName, srcFlags, dstGUID, dstName, _, ...)
   
@@ -956,76 +1571,101 @@ function NameplateSCT:COMBAT_LOG_EVENT_UNFILTERED(_, _, clueevent, srcGUID, srcN
 
   local srcIsPet = band(srcFlags, BITMASK_PETS) ~= 0
 
-  local PetOwner
+  local PetOwner,PetOwnerGuid
+  local tmpName=srcName
 
   if (srcIsPet and (showCasterNames or self.db.global.enableWhitelist or self.db.global.enableBlacklist)) then
-    PetOwner = getPetOwner(srcName,srcGUID)
-    if PetOwner then
-      srcName = PetOwner .. "'s pet"
-    else
-      srcName = "pet"
+    PetOwner,PetOwnerGuid = getPetOwner(srcName,srcGUID)
+    if PetOwner and PetOwnerGuid then
+      tmpName=PetOwner
     end
   end
 
-  local nameIsWhitelisted = (not self.db.global.enableWhitelist) or
-      (srcName and (contains(self.db.global.namesWhitelist, srcName:gsub("-.*$", "")) or (PetOwner and contains(self.db.global.namesWhitelist, PetOwner:gsub("-.*$", "")))))
-  if (not isPersonal and not nameIsWhitelisted) then --28.12.23
+  local srcNameIsWhitelisted = (not self.db.global.enableWhitelist) or
+      (srcName and (contains(self.db.global.namesWhitelist, tmpName:gsub("-.*$", "")) or (PetOwner and contains(self.db.global.namesWhitelist, PetOwner:gsub("-.*$", "")))))
+  if (not isPersonal and not srcNameIsWhitelisted) then --28.12.23
     return
   end
+  
+  
 
-  local nameIsBlacklisted = (not self.db.global.enableBlacklist) or
-      (srcName and (contains(self.db.global.namesBlacklist, srcName:gsub("-.*$", "")) or (PetOwner and contains(self.db.global.namesBlacklist, PetOwner:gsub("-.*$", "")))))
-  if (not isPersonal and not nameIsBlacklisted) then --28.12.23
+  local srcNameIsBlacklisted = (not self.db.global.enableBlacklist) or
+      (srcName and (contains(self.db.global.namesBlacklist, tmpName:gsub("-.*$", "")) or (PetOwner and contains(self.db.global.namesBlacklist, PetOwner:gsub("-.*$", "")))))
+  if (not isPersonal and not srcNameIsBlacklisted) then --28.12.23
     return
   end
+  
+  -- test 11.4.24
+  local dstNameIsWhitelisted = (not self.db.global.enableShowOnSpecificNameplatesByName) or
+      (dstName and (contains(self.db.global.showOnSpecificNameplatesNameList, dstName:gsub("-.*$", "")) ))
+  if (not isPersonal and not dstNameIsWhitelisted) then 
+    return
+  end
+  
+
 
   if (playerGUID == srcGUID or (band(srcFlags, BITMASK_MINE) ~= 0) or (self.db.global.personal and playerGUID == dstGUID) or self.db.global.ShowOthersUnitsHitsOnNameplates) then -- 3.12.23
     if band(srcFlags, BITMASK_PETS) ~= 0 then                                                                                         -- Pet/Guardian events
-      if damageSpellEvents[clueevent] or (healSpellEvents[clueevent] and self.db.global.heals) then
+      if damageSpellEvents[clueevent] or (healSpellEvents[clueevent] and self.db.global.heals and (not self.db.global.personalHealingOnly or (self.db.global.personalHealingOnly and playerGUID == dstGUID))) then
         local spellId, spellName, _, amount, overkill, _, _, _, _, critical, _, _, _, _, arg15 = ...
-        self:DamageEvent(dstGUID, spellName, amount, "pet", critical, spellId, healSpellEvents[clueevent] and self.db.global.heals, srcGUID, srcName, overkill)
+        self:DamageEvent(dstGUID, spellName, amount, "pet", critical, spellId, healSpellEvents[clueevent] and self.db.global.heals, srcGUID, tmpName, overkill)
+        --print(clueevent,srcName)
+        --if clueevent:find('SPELL_PERIODIC_HEAL') then
+          --print(clueevent,srcName,dstName)
+        --end
       elseif clueevent == "SWING_DAMAGE" then
         local amount, overkill, _, _, _, _, critical, _, _ = ...
-        self:DamageEvent(dstGUID, AutoAttack, amount, "pet", critical, 6603, nil, nil, srcName, overkill)
+        self:DamageEvent(dstGUID, AutoAttack, amount, "pet", critical, 6603, nil, srcGUID, tmpName, overkill)
+        --print(clueevent,srcName)
       elseif missedSpellEvents[clueevent] then
         local spellId, spellName, school, missType, absorbAmount = ...
         --print(clueevent, spellId, spellName, school, missType, absorbAmount)
         if (missType == "ABSORB" and absorbAmount) then
           self:MissEvent(dstGUID, spellName, missType, spellId, "pet", absorbAmount)
+          --print(clueevent,srcName)
         else
           self:MissEvent(dstGUID, spellName, missType, spellId, "pet")
+          --print(clueevent,srcName)
         end
       elseif clueevent == "SWING_MISSED" then
         local missType, absorbAmount = ...
         --print("SWING_MISSED", missType, absorbAmount)
         if (missType == "ABSORB" and absorbAmount) then
           self:MissEvent(dstGUID, AutoAttack, missType, 6603, "pet", absorbAmount)
+          --print(clueevent,srcName)
         else
           self:MissEvent(dstGUID, AutoAttack, missType, 6603, "pet")
+          --print(clueevent,srcName)
         end
       end
-    elseif damageSpellEvents[clueevent] or (healSpellEvents[clueevent] and self.db.global.heals and (self.db.global.personalHealingOnly == false or (self.db.global.personalHealingOnly == true and playerGUID == dstGUID))) then -- 20.11.23 added personal healing only option
+    elseif damageSpellEvents[clueevent] or (healSpellEvents[clueevent] and self.db.global.heals and (not self.db.global.personalHealingOnly or (self.db.global.personalHealingOnly and playerGUID == dstGUID))) then -- 20.11.23 added personal healing only option
       local spellId, spellName, school, amount, overkill, _, arg7, _, _, critical, _, _ = ...
       if clueevent == "SPELL_HEAL" then critical = arg7 end -- 20.11.23 now we check heal crits correctly
-      self:DamageEvent(dstGUID, spellName, amount, school, critical, spellId, healSpellEvents[clueevent] and self.db.global.heals, srcGUID, srcName, overkill)
+      self:DamageEvent(dstGUID, spellName, amount, school, critical, spellId, healSpellEvents[clueevent] and self.db.global.heals, srcGUID, tmpName, overkill)
+      --print(clueevent,srcName)
     elseif clueevent == "SWING_DAMAGE" then
       local amount, overkill, _, _, _, _, critical, _, _ = ...
-      self:DamageEvent(dstGUID, AutoAttack, amount, AutoAttack, critical, 6603, nil, nil, srcName, overkill)
+      self:DamageEvent(dstGUID, AutoAttack, amount, AutoAttack, critical, 6603, nil, srcGUID, tmpName, overkill)
+      --print(clueevent,srcName)
     elseif missedSpellEvents[clueevent] then
       local spellId, spellName, school, missType, absorbAmount = ...
       --print(missType)
       if (missType == "ABSORB" and absorbAmount) then
         self:MissEvent(dstGUID, spellName, missType, spellId, school, absorbAmount)
+        --print(clueevent,srcName)
       else
         self:MissEvent(dstGUID, spellName, missType, spellId, school)
+        --print(clueevent,srcName)
       end
     elseif clueevent == "SWING_MISSED" then
       local missType, absorbAmount = ...
       --print(missType)
       if (missType == "ABSORB" and absorbAmount) then
         self:MissEvent(dstGUID, AutoAttack, missType, 6603, AutoAttack, absorbAmount)
+        --print(clueevent,srcName)
       else
         self:MissEvent(dstGUID, AutoAttack, missType, 6603, AutoAttack)
+        --print(clueevent,srcName)
       end
     end
   end
@@ -1048,6 +1688,20 @@ function NameplateSCT:DamageEvent(dstGuid, spellName, amount, school, crit, spel
   local text, animation, pow, size, alpha, topMost, customTexture
   local autoattack = spellName == AutoAttack or spellName == AutoShot
   local isPersonal = dstGuid == playerGUID
+  
+  --print(dstGuid)
+  
+  if not isPersonal and self.db.global.hideMyHits then
+    if srcGUID == playerGUID then
+      return
+    end
+    if school == "pet" --[[or not IsPlayer(srcGUID)]] then
+      local ownerName,ownerGuid=getPetOwner(srcName,srcGUID)
+      if (ownerGuid and ownerGuid == playerGUID) or (ownerName and ownerName == _playerName) then
+        return
+      end
+    end
+  end
 
   -- select an animation
   if (self.db.global.displayOverkill and overkill > 0 and not isPersonal and not heals) then
@@ -1061,7 +1715,9 @@ function NameplateSCT:DamageEvent(dstGuid, spellName, amount, school, crit, spel
   end
 
   -- skip if this damage event is disabled
-  if (animation == "disabled") then return end
+  if (animation == "disabled") then 
+    return 
+  end
 
   -- 23.11.23 skip if spell is Blacklisted
   --print(self.db.global.spellBlacklistPersonal,self.db.global.spellBlacklistPersonal,spellName)
@@ -1126,7 +1782,7 @@ function NameplateSCT:DamageEvent(dstGuid, spellName, amount, school, crit, spel
     if (truncateLetter) then
       text = text .. "k"
     end
-  elseif (truncate and amount >= 1000) then
+  elseif (truncate and amount >= 100) then
     text = format("%.1f", amount / 1000)
 
     if (truncateLetter) then
@@ -1150,24 +1806,53 @@ function NameplateSCT:DamageEvent(dstGuid, spellName, amount, school, crit, spel
 
   if heals then school = "heals" end -- 18.11.23 heal color always green
 
+  text = crit and text.."!" or text
+  
+  text = heals and "+"..text or "-"..text
+
+  local textColor
+  if (useDamageTypeColor and school and DAMAGE_TYPE_COLORS[school] and not (autoattack and useOverridenColorOnAutoattacks)) then
+    --print(autoattack,DAMAGE_TYPE_COLORS[school], school)
+    --text = "\124cff" .. DAMAGE_TYPE_COLORS[school] .. text .. "\124r"
+    textColor = DAMAGE_TYPE_COLORS[school]
+  else
+    --text = "\124cff" .. OverridenDamageColor .. text .. "\124r"
+    textColor = OverridenDamageColor
+    if crit then
+      textColor = "FF2200"
+    end
+  end
+  
 
   local showCasterNames = (heals and ((isPersonal and self.db.global.showCasterNamesHealsPersonal) or (not isPersonal and self.db.global.showCasterNamesHeals))) or
       (not heals and ((isPersonal and self.db.global.showCasterNamesDamagePersonal) or (not isPersonal and self.db.global.showCasterNamesDamage)))
-
+      
+    
   if (showCasterNames and srcName) then
-    text = text .. " (" .. hideMyName(srcName) .. ")"
+    if srcGUID == playerGUID then
+      text = "|cff" .. textColor .. text .. " (me)|r" -- test 11.4.24
+    elseif IsPlayer(nil,srcGUID) then
+      text = "|cff" .. textColor .. text .. " (" .. colorName(srcName,nil,srcGUID,textColor,nil,nil,isPersonal) .. "|cff".. textColor..")|r" -- test 11.4.24
+    else 
+      local PetOwner,PetOwnerGuid = getPetOwner(srcName,srcGUID)
+    
+      if PetOwner and PetOwnerGuid and IsPlayer(nil,PetOwnerGuid) then
+        text = "|cff" .. textColor .. text .. " (" .. colorName(PetOwner,nil,PetOwnerGuid,textColor,nil,nil,isPersonal) .. "'s pet|cff" .. textColor.. ")|r" 
+      elseif PetOwner and PetOwnerGuid then
+        text = "|cff" .. textColor .. text .. " (" .. colorName(PetOwner,nil,PetOwnerGuid,textColor,nil,nil,isPersonal) .. "'s pet|cff" .. textColor.. ")|r" -- test 11.4.24
+      elseif school == "pet" then
+        text = "|cff" .. textColor .. text .. " (pet)|r" -- test 11.4.24
+      else
+        text = "|cff" .. textColor .. text .. " (" .. shortName(srcName,isPersonal) .. ")|r" -- test 11.4.24
+      end
+    end
+  else
+    text = "|cff" .. textColor .. text .. "|r" -- test 11.4.24
   end
   
 	if (self.db.global.displayOverkill and overkill > 0 and not isPersonal and not heals) then
-		text = text.." (overkill)"
+		text = text .. " |cff" .. textColor .. " (overkill)|r"
 	end
-
-  if (useDamageTypeColor and school and DAMAGE_TYPE_COLORS[school] and not (autoattack and useOverridenColorOnAutoattacks)) then
-    --print(autoattack,DAMAGE_TYPE_COLORS[school], school)
-    text = "\124cff" .. DAMAGE_TYPE_COLORS[school] .. text .. "\124r"
-  else
-    text = "\124cff" .. OverridenDamageColor .. text .. "\124r"
-  end
 
   --test priest shit 3.12.23
   -- if (mfTicksCountCurCast) then
@@ -1200,17 +1885,19 @@ function NameplateSCT:DamageEvent(dstGuid, spellName, amount, school, crit, spel
   --print(smallHitMaxValueDamage,smallHitMaxValueHeal)
 
   -- shrink small hits
-  if (not isPersonal and not overkill) then
-    if (not lastDamageEventTime or (lastDamageEventTime + self.db.global.SMALL_HIT_EXPIRY_WINDOW < GetTime())) then
-      numDamageEvents = 0
-      runningAverageDamageEvents = 0
+  if (not isPersonal and overkill <= 0) then
+    if srcGUID == playerGUID then
+      if (not lastDamageEventTime or (lastDamageEventTime + self.db.global.SMALL_HIT_EXPIRY_WINDOW < GetTime())) then
+        numDamageEvents = 0
+        runningAverageDamageEvents = 0
+      end
+
+      runningAverageDamageEvents = ((runningAverageDamageEvents * numDamageEvents) + amount) / (numDamageEvents + 1)
+      numDamageEvents = numDamageEvents + 1
+      lastDamageEventTime = GetTime()
     end
 
-    runningAverageDamageEvents = ((runningAverageDamageEvents * numDamageEvents) + amount) / (numDamageEvents + 1)
-    numDamageEvents = numDamageEvents + 1
-    lastDamageEventTime = GetTime()
-
-    if (( --[[not crit and]] amount < self.db.global.SMALL_HIT_MULTIPIER * runningAverageDamageEvents) or (crit and amount / 2 < self.db.global.SMALL_HIT_MULTIPIER * runningAverageDamageEvents) or ( --[[not crit and]] not heals and amount <= self.db.global.smallHitMaxValueDamage) or ( --[[not crit and]] heals and amount <= self.db.global.smallHitMaxValueHeal)) then -- 23.11.23 smallHitMaxValueHeal + smallHitMaxValueDamage
+    if (( --[[not crit and]] srcGUID == playerGUID and amount < self.db.global.SMALL_HIT_MULTIPIER * runningAverageDamageEvents) or (srcGUID == playerGUID and crit and amount / 2 < self.db.global.SMALL_HIT_MULTIPIER * runningAverageDamageEvents) or ( --[[not crit and]] not heals and amount <= self.db.global.smallHitMaxValueDamage) or ( --[[not crit and]] heals and amount <= self.db.global.smallHitMaxValueHeal)) then -- 23.11.23 
       if ((self.db.global.smallHitsDamageHide and not heals) or (heals and self.db.global.smallHitsHealHide)) then
         -- skip this damage event, it's too small
         --print('smallHitsDamageHide or smallHitsHealHide on np')
@@ -1268,7 +1955,7 @@ function NameplateSCT:DamageEvent(dstGuid, spellName, amount, school, crit, spel
 
   if (autoattack and school == "pet") then spellName = "pet" end -- 27.11.23
 
-  self:DisplayText(dstGuid, text, size, alpha, animation, spellId, pow, spellName, topMost, customTexture, overkill)
+  self:DisplayText(dstGuid, text, size, alpha, animation, spellId, pow, spellName, topMost, customTexture, overkill, heals, crit)
 end
 
 --++
@@ -1277,18 +1964,18 @@ function NameplateSCT:MissEvent(guid, spellName, missType, spellId, school, abso
   local isTarget = (UnitGUID("target") == guid)
   local isPersonal = guid == playerGUID
   local autoattack = spellName == AutoAttack or spellName == AutoShot
-  local OverridenDamageColor = isPersonal and self.db.global.OverridenDamageColorPersonal or
-      self.db.global.OverridenDamageColor
-  local useDamageTypeColor = (isPersonal and self.db.global.useDamageTypeColorPersonal) or
-      (not isPersonal and self.db.global.useDamageTypeColor) or autoattack
-  local animation = isPersonal and self.db.global.missAnimPersonal or self.db.global.missAnim
-  local useOverridenColorOnAutoattacks = (isPersonal and self.db.global.useOverridenColorOnAutoattacksPersonal) or
-      (not isPersonal and self.db.global.useOverridenColorOnAutoattacks)
+  local OverridenDamageColor = (isPersonal and self.db.global.OverridenDamageColorPersonal) or (not isPersonal and self.db.global.OverridenDamageColor)
+  local useDamageTypeColor = (isPersonal and self.db.global.useDamageTypeColorPersonal) or (not isPersonal and self.db.global.useDamageTypeColor) or autoattack
+  local animation = (isPersonal and self.db.global.missAnimPersonal) or (not isPersonal and self.db.global.missAnim)
+  local useOverridenColorOnAutoattacks = (isPersonal and self.db.global.useOverridenColorOnAutoattacksPersonal) or (not isPersonal and self.db.global.useOverridenColorOnAutoattacks)
 
   -- No animation set, cancel out
   if (animation == "disabled") then
+    --print(animation,'return')
     return
   end
+  
+  --print(isPersonal,self.db.global.missAnim)
 
   if (useDamageTypeColor and school and DAMAGE_TYPE_COLORS[school] and not (autoattack and useOverridenColorOnAutoattacks)) then
     --color = "ffffff" -- 19.11.23 AutoAttack/AutoShot color always white
@@ -1369,7 +2056,7 @@ function NameplateSCT:GetNameplateByGuidTest(guid) -- 18.11.23
 end
 
 --++
-function NameplateSCT:DisplayText(guid, text, size, alpha, animation, spellId, pow, spellName, topMost, customTexture, overkill)
+function NameplateSCT:DisplayText(guid, text, size, alpha, animation, spellId, pow, spellName, topMost, customTexture, overkill, heals, crit)
   local fontString, icon, texture
 
   local nameplate --= self:GetNameplateByGuidTest(guid) -- 18.11.23 adaptation for awesome wotlk
@@ -1435,26 +2122,42 @@ function NameplateSCT:DisplayText(guid, text, size, alpha, animation, spellId, p
     end
   end
 
-  if showIcon and texture then
-    icon = fontString.icon
-    icon:Show()
-    icon:SetTexture(texture)
-    icon:SetSize(size * iconScale, size * iconScale)
-    icon:SetPoint(inversePositions[iconPosition], fontString, iconPosition,
-      xOffsetIcon, yOffsetIcon)
-    icon:SetAlpha(alpha)
-    fontString.icon = icon
-  elseif fontString.icon then
-    fontString.icon:Hide()
-  end
+  --fontString=nil
+  --print(size)
+  
+  local t = crit and 3.0 or 2.5
 
-  -- 3.12.23
-  if topMost then
-    fontString.topMost = topMost
-    --print(fontString.topMost)
-  end
+  if isPersonal and NameplateSCT.db.global.enableSimpleStylePersonalSct then
+    --print(size)
+    if heals then
+      func_heal("|T" .. texture .. ":12|t " ..text,{1,0,0},nil,t,nil,nil,false,false,nil,nil,nil,size or 12)
+    else
+      func_dmg("|T" .. texture .. ":12|t " ..text,{1,0,0},nil,t,nil,nil,false,false,nil,nil,nil,size or 12)
+    end
+    --fontString=nil
+  else
+    if showIcon and texture then
+      icon = fontString.icon
+      icon:Show()
+      icon:SetTexture(texture)
+      icon:SetSize(size * iconScale, size * iconScale)
+      icon:SetPoint(inversePositions[iconPosition], fontString, iconPosition,
+        xOffsetIcon, yOffsetIcon)
+      icon:SetAlpha(alpha)
+      fontString.icon = icon
+    elseif fontString.icon then
+      fontString.icon:Hide()
+    end
 
-  self:Animate(fontString, nameplate, animationspeed, animation)
+    -- 3.12.23
+    if topMost then
+      fontString.topMost = topMost
+      --print(fontString.topMost)
+    end
+
+    self:Animate(fontString, nameplate, animationspeed, animation)
+    --fontString=nil
+  end
 end
 
 function NameplateSCTDisplayText(guid, text, size, alpha, animation, spellId, pow, spellName, topMost, customTexture)
@@ -1552,6 +2255,24 @@ local menu = {
 			desc = "Display your overkill for a target over your own nameplate",
 			order = 9,
 		},
+    hideMyHits = {
+			type = 'toggle',
+			name = "Hide my hits",
+			desc = "Hide my hits",
+			order = 10,
+		},
+    enableClassColorCasterNames = {
+			type = 'toggle',
+			name = "Class color caster names",
+			desc = "Class color caster names",
+			order = 11,
+		},
+    enableSimpleStylePersonalSct = {
+			type = 'toggle',
+			name = "enableSimpleStylePersonalSct",
+			desc = "enableSimpleStylePersonalSct",
+			order = 12,
+		},
 
     animations = {
       type = "group",
@@ -1596,7 +2317,7 @@ local menu = {
               name = "|cff55ff55SMALL_HIT_EXPIRY_WINDOW|r",
               desc = "default:30",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 2,
               width = "double"
@@ -1616,7 +2337,7 @@ local menu = {
               name = "|cff5555ffANIMATION_VERTICAL_DISTANCE_MIN|r",
               desc = "default:75, must be < than ANIMATION_VERTICAL_DISTANCE_MAX",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 4,
               width = "double"
@@ -1626,7 +2347,7 @@ local menu = {
               name = "|cff5555ffANIMATION_VERTICAL_DISTANCE_MAX|r",
               desc = "default:75, must be > than ANIMATION_VERTICAL_DISTANCE_MIN",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 5,
               width = "double"
@@ -1636,7 +2357,7 @@ local menu = {
               name = "ANIMATION_ARC_X_MIN",
               desc = "default:50, must be < than ANIMATION_ARC_X_MAX",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 6,
               width = "double"
@@ -1646,7 +2367,7 @@ local menu = {
               name = "ANIMATION_ARC_X_MAX",
               desc = "default:150, must be > than ANIMATION_ARC_X_MIN",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 7,
               width = "double"
@@ -1656,7 +2377,7 @@ local menu = {
               name = "|cff55ff55ANIMATION_ARC_Y_TOP_MIN|r",
               desc = "default:10, must be < than ANIMATION_ARC_Y_TOP_MAX",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 8,
               width = "double"
@@ -1666,7 +2387,7 @@ local menu = {
               name = "|cff55ff55ANIMATION_ARC_Y_TOP_MAX|r",
               desc = "default:50, must be > than ANIMATION_ARC_Y_TOP_MIN",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 9,
               width = "double"
@@ -1675,8 +2396,8 @@ local menu = {
               type = "range",
               name = "|cffff5555ANIMATION_ARC_Y_BOTTOM_MIN|r",
               desc = "default:10, must be < than ANIMATION_ARC_Y_BOTTOM_MAX",
-              min = 0,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 10,
               width = "double"
@@ -1685,8 +2406,8 @@ local menu = {
               type = "range",
               name = "|cffff5555ANIMATION_ARC_Y_BOTTOM_MAX|r",
               desc = "default:50, must be > than ANIMATION_ARC_Y_BOTTOM_MIN",
-              min = 0,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 11,
               width = "double"
@@ -1696,7 +2417,7 @@ local menu = {
               name = "|cff5555ffANIMATION_RAINFALL_X_MAX|r",
               desc = "default:75, no MIN available for this value",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 12,
               width = "double"
@@ -1705,8 +2426,8 @@ local menu = {
               type = "range",
               name = "ANIMATION_RAINFALL_Y_MIN",
               desc = "default:50, must be < than ANIMATION_RAINFALL_Y_MAX",
-              min = -300,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 13,
               width = "double"
@@ -1715,8 +2436,8 @@ local menu = {
               type = "range",
               name = "ANIMATION_RAINFALL_Y_MAX",
               desc = "default:100, must be > than ANIMATION_RAINFALL_Y_MIN",
-              min = -300,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 14,
               width = "double"
@@ -1725,8 +2446,8 @@ local menu = {
               type = "range",
               name = "|cffff5555ANIMATION_RAINFALL_Y_START_MIN|r",
               desc = "default:5, must be < than ANIMATION_RAINFALL_Y_START_MAX",
-              min = -300,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 15,
               width = "double"
@@ -1735,8 +2456,8 @@ local menu = {
               type = "range",
               name = "|cffff5555ANIMATION_RAINFALL_Y_START_MAX|r",
               desc = "default:15, must be > than ANIMATION_RAINFALL_Y_START_MIN",
-              min = -300,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 16,
               width = "double"
@@ -1746,8 +2467,8 @@ local menu = {
 
         enableWhitelist = { -- added 28.12.23
           type = "toggle",
-          name = "|cffff8811Enable names whitelist|r",
-          desc = "Show SCT only from names from whitelist (when all units hits enabled)",
+          name = "|cffff8811Enable names(src names) whitelist (for show-all-units-hits option)|r",
+          desc = "Show SCT only from names(src names) from whitelist (when all units hits enabled)",
           order = 595,
           width = "double"
         },
@@ -1757,8 +2478,8 @@ local menu = {
           type = "input",
           width = "full",
           multiline = true,
-          desc = "Names to show only their SCT (when all units hits enabled), separated by \";\" without space|r",
-          name = "|cffffaa00Names whitelist, separated by \";\" without space|r",
+          desc = "Names(src names) to show only their SCT (when all units hits enabled), separated by \";\" without space|r",
+          name = "|cffffaa00Names whitelist(src names), separated by \";\" without space|r",
           get = function()
             return table.concat(NameplateSCT.db.global.namesWhitelist or {}, ";")
           end,
@@ -1772,8 +2493,8 @@ local menu = {
 
         enableBlacklist = { -- added 28.12.23
           type = "toggle",
-          name = "|cffff8811Enable names blacklist|r",
-          desc = "Show SCT only from names from whitelist (when all units hits enabled)",
+          name = "|cffff8811Enable names(src names) blacklist (for show-all-units-hits option)|r",
+          desc = "Show SCT only from names(src names) from whitelist (when all units hits enabled)",
           order = 605,
           width = "double"
         },
@@ -1783,9 +2504,8 @@ local menu = {
           type = "input",
           width = "full",
           multiline = true,
-          desc =
-          "Names blacklist to do not show their SCT (when all units hits enabled), separated by \";\" without space",
-          name = "|cffffaa00Names blacklist, separated by \";\" without space|r",
+          desc = "Names blacklist(src names) to do not show their SCT (when all units hits enabled), separated by \";\" without space",
+          name = "|cffffaa00Names blacklist(src names), separated by \";\" without space|r",
           get = function()
             return table.concat(NameplateSCT.db.global.namesBlacklist or {}, ";")
           end,
@@ -1796,6 +2516,36 @@ local menu = {
             end
           end,
         },
+        
+        
+        
+        enableShowOnSpecificNameplatesByName = { -- added 11.4.24
+          type = "toggle",
+          name = "|cffff8811Enable show SCT on specific nameplates by their names(dst names)|r",
+          desc = "|cffff8811Enable show SCT on specific nameplates by their names(dst names)|r",
+          order = 601,
+          width = "double"
+        },
+
+        showOnSpecificNameplatesNameList = { -- added 11.4.24
+          order = 602,
+          type = "input",
+          width = "full",
+          multiline = true,
+          desc = "Names to show only their received dmg and heal(dst names list), separated by \";\" without space|r",
+          name = "Names to show only their received dmg and heal(dst names list), separated by \";\" without space|r",
+          get = function()
+            return table.concat(NameplateSCT.db.global.showOnSpecificNameplatesNameList or {}, ";")
+          end,
+          set = function(info, value)
+            NameplateSCT.db.global.showOnSpecificNameplatesNameList = {}
+            for name in string.gmatch(value, "([^;]+)") do
+              table.insert(NameplateSCT.db.global.showOnSpecificNameplatesNameList, name)
+            end
+          end,
+        },
+        
+        
 
         animationspeed = {
           type = "range",
@@ -2106,9 +2856,19 @@ local menu = {
             },
             showAbsorbAmount = {
               type = "toggle",
-              name = "Show absorb amount",
+              name = "Show absorb amount",  
               desc = "",
               order = 13,
+              width = "double"
+            },
+            CasterNamesMaxLength = { 
+              type = "range",
+              name = "CasterNamesMaxLength",
+              desc = "",
+              min = 2,
+              max = 12,
+              step = 1,
+              order = 14,
               width = "double"
             },
           }
@@ -2531,6 +3291,32 @@ local menu = {
           inline = true,
           disabled = addonDisabled,
           args = {
+            xOffsetHealingPersonal = {
+              type = "range",
+              name = "X Offset Personal SCT (healing)",
+              desc = L["Only used if Personal Nameplate is Disabled"],
+              hidden = function()
+                return not NameplateSCT.db.global.personal
+              end,
+              softMin = -400,
+              softMax = 400,
+              step = 1,
+              order = -1,
+              width = "double"
+            },
+            yOffsetHealingPersonal = {
+              type = "range",
+              name = "Y Offset Personal SCT (healing)",
+              desc = L["Only used if Personal Nameplate is Disabled"],
+              hidden = function()
+                return not NameplateSCT.db.global.personal
+              end,
+              softMin = -400,
+              softMax = 400,
+              step = 1,
+              order = -2,
+              width = "double"
+            },
             xOffsetPersonal = {
               type = "range",
               name = L["X Offset Personal SCT"],
@@ -2623,6 +3409,16 @@ local menu = {
               name = "Show absorb amount (personal)",
               desc = "",
               order = 10,
+              width = "double"
+            },
+            CasterNamesMaxLengthPersonal = { 
+              type = "range",
+              name = "CasterNamesMaxLengthPersonal (personal)",
+              desc = "",
+              min = 2,
+              max = 12,
+              step = 1,
+              order = -5,
               width = "double"
             },
           }
@@ -2896,7 +3692,7 @@ local menu = {
               name = "|cff5555ffANIMATION_VERTICAL_DISTANCE_MIN_PERSONAL|r",
               desc = "default:75, must be < than ANIMATION_VERTICAL_DISTANCE_MAX_PERSONAL",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 13,
               width = "double"
@@ -2906,7 +3702,7 @@ local menu = {
               name = "|cff5555ffANIMATION_VERTICAL_DISTANCE_MAX_PERSONAL|r",
               desc = "default:75, must be > than ANIMATION_VERTICAL_DISTANCE_MIN_PERSONAL",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 14,
               width = "double"
@@ -2916,7 +3712,7 @@ local menu = {
               name = "ANIMATION_ARC_X_MIN_PERSONAL",
               desc = "default:50, must be < than ANIMATION_ARC_X_MAX_PERSONAL",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 15,
               width = "double"
@@ -2927,7 +3723,7 @@ local menu = {
               name = "ANIMATION_ARC_X_MAX_PERSONAL",
               desc = "default:150, must be > than ANIMATION_ARC_X_MIN_PERSONAL",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 16,
               width = "double"
@@ -2937,7 +3733,7 @@ local menu = {
               name = "|cff55ff55ANIMATION_ARC_Y_TOP_MIN_PERSONAL|r",
               desc = "default:10, must be < than ANIMATION_ARC_Y_TOP_MAX_PERSONAL",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 17,
               width = "double"
@@ -2947,7 +3743,7 @@ local menu = {
               name = "|cff55ff55ANIMATION_ARC_Y_TOP_MAX_PERSONAL|r",
               desc = "default:50, must be > than ANIMATION_ARC_Y_TOP_MIN_PERSONAL",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 18,
               width = "double"
@@ -2956,8 +3752,8 @@ local menu = {
               type = "range",
               name = "|cffff5555ANIMATION_ARC_Y_BOTTOM_MIN_PERSONAL|r",
               desc = "default:10, must be < than ANIMATION_ARC_Y_BOTTOM_MAX_PERSONAL",
-              min = 0,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 19,
               width = "double"
@@ -2967,8 +3763,8 @@ local menu = {
               type = "range",
               name = "|cffff5555ANIMATION_ARC_Y_BOTTOM_MAX_PERSONAL|r",
               desc = "default:50, must be > than ANIMATION_ARC_Y_BOTTOM_MIN_PERSONAL",
-              min = 0,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 20,
               width = "double"
@@ -2978,7 +3774,7 @@ local menu = {
               name = "|cff5555ffANIMATION_RAINFALL_X_MAX_PERSONAL|r",
               desc = "default:75, no MIN available for this value",
               min = 0,
-              max = 300,
+              max = 500,
               step = 1,
               order = 21,
               width = "double"
@@ -2987,8 +3783,8 @@ local menu = {
               type = "range",
               name = "ANIMATION_RAINFALL_Y_MIN_PERSONAL",
               desc = "default:50, must be < than ANIMATION_RAINFALL_Y_MAX_PERSONAL",
-              min = -300,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 22,
               width = "double"
@@ -2997,8 +3793,8 @@ local menu = {
               type = "range",
               name = "ANIMATION_RAINFALL_Y_MAX_PERSONAL",
               desc = "default:100, must be > than ANIMATION_RAINFALL_Y_MIN_PERSONAL",
-              min = -300,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 23,
               width = "double"
@@ -3007,8 +3803,8 @@ local menu = {
               type = "range",
               name = "|cffff5555ANIMATION_RAINFALL_Y_START_MIN_PERSONAL|r",
               desc = "default:5, must be < than ANIMATION_RAINFALL_Y_START_MIN_PERSONAL",
-              min = -300,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 24,
               width = "double"
@@ -3017,8 +3813,8 @@ local menu = {
               type = "range",
               name = "|cffff5555ANIMATION_RAINFALL_Y_START_MAX_PERSONAL|r",
               desc = "default:15, must be > than ANIMATION_RAINFALL_Y_START_MIN_PERSONAL",
-              min = -300,
-              max = 300,
+              min = -500,
+              max = 500,
               step = 1,
               order = 25,
               width = "double"
